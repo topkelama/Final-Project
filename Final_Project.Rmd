@@ -1,0 +1,420 @@
+---
+title: "Final Project"
+author: "Chhiring Lama"
+date: "2024-04-25"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+This analysis involved the collection of data from two sources: the New York Times API and an additional dataset from Kaggle. Following data collection, preprocessing and cleaning steps were performed to ensure the data's suitability for analysis. Subsequently, sentiment analysis was conducted on the articles, comparing the frequency of positive and negative words between the Kaggle dataset and the New York Times articles. The findings were visualized using bar plots and word clouds to provide a clear comparison. Overall, this analysis sheds light on the sentiment trends within the datasets and highlights any disparities between the two sources.
+
+## Data Science Workflow OSEMN
+
+ 1. Obtain:- I loaded an article from the New York Times' most popular API and another one from Kaggle.
+ 2. Scrub:- I defined a function to clean and tokenize the text. I used the regex along with important R functions we learned this semester, namely strsplit(), gsub(), unlist() etc.
+ 3. Explore:- I made a sentiment analysis on both corpuses using lexicon nrc and compared the top 10 words with higher occurrence. I compared positive and negative words between 2 corpuses data. Aggregated the sentiment values and Obtained central tendencies. Finally, Inner joined those corpora and plotted with wordcloud using the wordcloud2() function. 
+ 4. Model:- In this project, I focused more on data acquisition and data tidying. So, I skipped this step of modeling.
+ 5. Interpretation:- I added a conclusion at the end of the code blocks which interprets and draws a conclusion of this project.
+
+## Motivation
+
+In an era where sexual health awareness is increasingly important, understanding the sentiment surrounding related discussions is crucial. By analyzing articles from reputable sources like the New York Times and user-generated content from platforms like Kaggle, I aim to uncover sentiment trends, identify common positive and negative themes, and ultimately contribute to a deeper understanding of public discourse surrounding sexual health. Through this project, I seek to shed light on important societal discussions and promote informed conversations about sexual health.
+
+
+## Load required libraries
+
+```{r, echo=TRUE}
+library(tidyr)
+library(dplyr)
+library(tidytext)
+library(textdata)
+library(textclean)
+library(jsonlite)
+library(httr)
+library(tm)
+library(scrapeR)
+library(wordcloud2)
+library(ggplot2)
+library(plotly)
+library(purrr)
+```
+
+```{r, echo=FALSE}
+Sys.setenv(TIMES_API_KEY = "0QNHxMft77ODm69bFVw2GkeidiYaoadC")
+```
+
+## Data Collection
+
+ Load the data using the New York Times API
+
+```{r, echo=TRUE}
+url_times <- paste0('https://api.nytimes.com/svc/mostpopular/v2/emailed/7.json?api-key=',Sys.getenv("TIMES_API_KEY"))
+
+jsonDF1 <- fromJSON(url_times) 
+```
+
+## Filter articles based on section
+
+```{r, echo=TRUE}
+# Convert JSON data to a data frame
+df <- as.data.frame(jsonDF1$results)
+
+health_articles <- df[df$section == "Well" | df$subsection == "Move", ]
+```
+
+## Selecting an appropriate article
+
+```{r, echo=TRUE}
+# Check if there are any articles in each section
+if (nrow(health_articles) > 0) {
+  print("Health Articles:")
+  print(health_articles[c("title", "url")])
+} else {
+  print("No articles found in the health section.")
+}
+```
+
+## Scrape the content 
+
+```{r, echo=TRUE}
+
+article_url <- "https://www.nytimes.com/2024/04/27/well/move/sex-exercises-improve-performance.html"
+
+article_content <- scrapeR(article_url)
+#head(article_content)
+```
+
+## Load an additional data from different source
+
+```{r, echo=TRUE}
+additional_data <- read.csv("https://raw.githubusercontent.com/topkelama/Final-Project/main/cleaned_asha_data.csv")
+
+```
+
+# Combine the title and description into a single column
+
+```{r, echo=TRUE}
+
+additional_data$text <- paste(additional_data$PostTitle, additional_data$PostDescription, sep = " ")
+```
+
+
+## Data Transformation and Preprocessing
+
+  Define a function to clean and tokenize text
+```{r, echo=TRUE}
+clean_text <- function(text) {
+  # Tokenize text
+  tokens <- unlist(strsplit(text, "\\s+"))
+  # Remove HTML tags
+  cleaned_tokens <- gsub("<.*?>", "", tokens)
+  # Convert to lowercase
+  cleaned_tokens <- tolower(cleaned_tokens)
+  # Remove special characters and punctuation
+  cleaned_tokens <- gsub("[^a-zA-Z\\s]", "", cleaned_tokens)
+  # Remove stop words
+  cleaned_tokens <- cleaned_tokens[!cleaned_tokens %in% stopwords("en")]
+  return(cleaned_tokens)
+}
+```
+
+## Call the clean_text function
+
+  Ensure that the text data is in character format
+
+```{r, echo=TRUE}
+# Extract the text column
+text_data <- additional_data$text
+
+text_data <- as.character(text_data)
+```
+
+## Call clean_text fucntion and apply on kaggle data
+
+```{r, echo=TRUE}
+# Apply cleaning and tokenization calling the function clean_text
+cleaned_tokens_kaggle <- lapply(text_data, clean_text)
+
+```
+
+## Call clean_text function and apply on NYT article data 
+
+```{r, echo=TRUE} 
+# Apply cleaning and tokenization
+cleaned_tokens_nyt <- lapply(article_content, clean_text)
+
+```
+
+## Load Lexicon
+
+```{r, echo=TRUE}
+ # Load NRC lexicon
+nrc_lexicon <- get_sentiments("nrc")
+# Add a 'value' column to the NRC lexicon dataframe with default value 1
+nrc_lexicon$value <- 1
+
+```
+
+## parse to data frame
+
+```{r, echo=TRUE}
+df_cleaned_nyt <- data.frame(tokens = unlist(cleaned_tokens_nyt))
+
+df_cleaned_additional <- data.frame(tokens = unlist(cleaned_tokens_kaggle))
+
+```
+
+## Join with NRC lexicon to calculate sentiment scores
+
+```{r, echo=TRUE}
+
+joined_nyt_data <- inner_join(df_cleaned_nyt, nrc_lexicon, by = c("tokens" = "word"))
+
+joined_sexual_health <- inner_join(df_cleaned_additional, nrc_lexicon, by = c("tokens" = "word"))
+#joined_nyt_data
+```
+## Analysis
+
+ Top 10 Positive words from New York Times article
+```{r, echo=TRUE}
+positive_words_nyt <- joined_nyt_data %>%
+  filter(sentiment == "positive") %>%
+  count(tokens, sort = TRUE) %>%
+  head(10)
+
+```
+
+ Top 10 Positive words Sexual health post
+
+```{r, echo=TRUE}
+positive_words_kaggle <- joined_sexual_health %>%
+  filter(sentiment == "positive") %>%
+  count(tokens, sort = TRUE) %>%
+  head(10)
+
+```
+
+# Negative words from Sexual Health data from kaggle
+
+```{r, echo=TRUE}
+negative_words_kaggle <- joined_sexual_health %>%
+  filter(sentiment == "negative") %>%
+  count(tokens, sort = TRUE) %>%
+  head(10)
+
+```
+
+# NEgative words from NY Times Article
+
+```{r, echo=TRUE}
+negative_words_nyt <- joined_nyt_data %>%
+  filter(sentiment == "negative") %>%
+  count(tokens, sort = TRUE) %>%
+  head(10)
+
+```
+
+## Aggregation
+
+ Aggregate the NYT article corpus with lexicon nrc
+
+```{r, echo=TRUE}
+
+aggregated_nyt_data <- joined_nyt_data %>%
+  group_by(tokens) %>%
+  summarise(total_value = sum(value)) %>%
+  ungroup()
+
+```
+
+# Aggregate the Sexual Health post corpus with lexicon nrc
+```{r, echo=TRUE}
+
+aggregated_sexual_health <- joined_sexual_health %>%
+  group_by(tokens) %>%
+  summarise(total_value = sum(value)) %>%
+  ungroup()
+
+```
+
+## Combine two aggregated data sets
+
+```{r, echo=TRUE}
+
+combined_data <- inner_join(aggregated_sexual_health, aggregated_nyt_data, by = "tokens")
+
+```
+
+## Calculate central tendencies for total_value
+
+```{r, echo=TRUE}
+
+mean_total <- mean(combined_data$total_value.x)
+median_total <- median(combined_data$total_value.x)
+mode_total <- as.numeric(names(sort(table(combined_data$total_value.x), decreasing = TRUE)[1]))
+
+# Print the central tendencies
+cat("Central Tendencies for total_value:\n")
+cat("Mean:", mean_total, "\n")
+cat("Median:", median_total, "\n")
+cat("Mode:", mode_total, "\n")
+```
+
+## compare positive and negative words after merging two datasets in one
+
+ combine two positive datasets
+
+```{r, echo=TRUE}
+
+combined_positive_words <- merge(positive_words_kaggle, positive_words_nyt, by = "tokens", all = TRUE)
+
+# Filling NA values with 0
+combined_positive_words[is.na(combined_positive_words)] <- 0
+```
+
+ Combine two negative datasets
+
+```{r, echo=TRUE}
+combined_negative_words <- merge(negative_words_kaggle, negative_words_nyt, by = "tokens", all = TRUE)
+combined_negative_words[is.na(combined_negative_words)] <- 0
+```
+
+
+
+```{r}
+combined_positive_words <- combined_positive_words %>%
+  arrange(desc(n.x)) %>%
+  mutate(tokens = factor(tokens, levels = tokens))
+#combined_positive_words
+```
+
+## Visualize with the barplot using ggplot function
+
+  Positive sentiments
+  
+Due to the data density, only top 10 most frequently occured words are chosen
+
+```{r, echo=TRUE}
+# Assuming positive_words_kaggle and positive_words_nyt are your data frames
+ggplot(combined_positive_words, aes(x = tokens)) +
+  geom_bar(aes(y = n.x, fill = "Kaggle"), stat = "identity", position = "dodge") +
+  geom_bar(aes(y = n.y, fill = "NYT"), stat = "identity", position = "dodge") +
+  scale_fill_manual(values = c("Kaggle" = "blue", "NYT" = "red")) +
+  labs(x = "Positive Words", y = "Frequency", title = "Comparison of Positive Words between Kaggle and NYT") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+combined_negative_words <- combined_negative_words %>%
+  arrange(desc(n.x)) %>%
+  mutate(tokens = factor(tokens, levels = tokens))
+```
+
+# Negative Sentiments
+
+```{r, echo=TRUE}
+
+ggplot(combined_negative_words, aes(x = tokens)) +
+  geom_bar(aes(y = n.x, fill = "Kaggle"), stat = "identity", position = "dodge") +
+  geom_bar(aes(y = n.y, fill = "NYT"), stat = "identity", position = "dodge") +
+  scale_fill_manual(values = c("Kaggle" = "blue", "NYT" = "red")) +
+  labs(x = "Negative Words", y = "Frequency", title = "Comparison of Negative Words between Kaggle and NYT") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## Now, Let's find the sentiments in entire data sets with wordcloud
+
+ Join datasets from two different sources
+
+```{r, echo=TRUE}
+# Aggregate the Kaggle data
+aggregated_kaggle <- joined_sexual_health %>%
+  group_by(tokens, sentiment) %>%
+  summarise(n = n(), .groups = "drop")
+
+# Aggregate the NY Times data
+aggregated_nyt <- joined_nyt_data %>%
+  group_by(tokens, sentiment) %>%
+  summarise(n = n(), .groups = "drop")
+
+# Join the aggregated datasets
+joined_data_overall <- rbind(aggregated_nyt, aggregated_kaggle)
+
+# Aggregate the joined dataset
+aggregated_overall <- joined_data_overall %>%
+  group_by(tokens, sentiment) %>%
+  summarise(n = sum(n), .groups = "drop")
+
+```
+
+## Filter positive and negative tokens from both datasets
+
+```{r, echo=TRUE}
+ 
+positive_tokens <- aggregated_overall %>%
+  filter(sentiment == "positive") %>%
+  select(tokens, n)
+
+negative_tokens <- aggregated_overall %>%
+  filter(sentiment == "negative") %>%
+  select(tokens, n)
+
+```
+
+
+```{r, echo=TRUE}
+
+# Convert entire_positive_words and entire_negative_words to tibbles if they are not already
+entire_positive_words <- as_tibble(positive_tokens)
+entire_negative_words <- as_tibble(negative_tokens)
+
+```
+
+## Plot with wordcloud
+
+```{r, echo=TRUE}
+positive_word_freq <- entire_positive_words %>%
+  group_by(tokens) %>%
+  summarise(n = sum(n))
+
+```
+
+```{r, echo=TRUE}
+negative_word_freq <- entire_negative_words %>%
+  group_by(tokens) %>%
+  summarise(n = sum(n))
+```
+
+## Positive Sentiments in WordCloud
+
+```{r, echo=TRUE}
+
+wordcloud2(positive_word_freq, size = 1.5, color = "random-dark", backgroundColor = "white")
+            
+```
+
+## Negative Sentiments in wordCloud
+
+```{r, results='asis'}
+
+wordcloud2(negative_word_freq, size = 2, color = "random-dark", backgroundColor = "white")
+            
+```
+
+
+
+## Conclusion:
+
+In this analysis, I delved into the sentiment of sexual health-related articles sourced from the New York Times API and Kaggle. By scrutinizing the frequency of positive and negative words in each dataset, I uncovered both similarities and discrepancies between the two sources. Utilizing visual aids like bar plots and word clouds facilitated a comprehensive comparison, offering valuable insights into sentiment distribution across the datasets. Through this exploration, I gained a deeper understanding of sentiment trends in sexual health discourse across different platforms.
+
+## References:
+
+https://www.kaggle.com/datasets/ap1495/american-sexual-health-association?select=cleaned_asha_data.csv
+https://developer.nytimes.com/docs/most-popular-product/1/overview
